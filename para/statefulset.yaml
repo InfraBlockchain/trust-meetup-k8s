@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: para
+  namespace: demo
+spec:
+  # pod selector
+  selector:
+    matchLabels:
+      app: paranode
+      mode: para
+  # select headless service
+  serviceName: "para-headless-service"
+  # update strategy
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  # spec
+  replicas: 1 # by default is 1
+  template:
+    metadata:
+      labels:
+        app: paranode # has to match .spec.selector.matchLabels
+        mode: para
+    spec:
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        fsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 1000
+      initContainers:
+        - name: download-spec
+          image: curlimages/curl:8.1.2
+          command:
+            [
+              "curl",
+              "-L",
+              "https://docs.substrate.io/assets/tutorials/relay-chain-specs/raw-local-chainspec.json",
+              "-o",
+              "/tmp/raw-local-chainspec.json",
+            ]
+          volumeMounts:
+            - name: chain-spec
+              mountPath: /tmp
+        - name: download-para-spec
+          image: curlimages/curl:8.1.2
+          command:
+            [
+              "curl",
+              "-L",
+              "https://github.com/InfraBlockchain/trust-meetup-k8s/releases/download/spec-file/test-para-raw.json",
+              "-o",
+              "/tmp/raw-parachain-chainspec.json",
+            ]
+          volumeMounts:
+            - name: chain-spec
+              mountPath: /tmp
+      containers:
+        - name: polkadot
+          image: parity/polkadot-parachain:0.9.380
+          imagePullPolicy: Always
+          args: [
+              "--alice",
+              "--collator",
+              "--force-authoring",
+              "--base-path",
+              "/data/para",
+              "--chain",
+              "/tmp/raw-parachain-chainspec.json",
+              "--rpc-port=9933", # json rpc
+              "--ws-port=9944", #p2p
+              "--port=30333", #p2p
+              "--unsafe-ws-external",
+              "--unsafe-rpc-external",
+              "--rpc-cors",
+              "all",
+              "--",
+              "--execution",
+              "wasm",
+              "--rpc-port=9934",
+              "--ws-port=9945", #p2p
+              "--port=30334",
+              "--chain",
+              "/tmp/raw-local-chainspec.json",
+              "--bootnodes",
+              "/dns4/boot-headless-service/tcp/30333/p2p/<boot node id>",
+              "--unsafe-ws-external",
+              "--unsafe-rpc-external",
+              "--rpc-cors",
+              "all",
+              "--base-path",
+              "/data/relay",
+            ]
+          volumeMounts:
+            - name: para-pvc
+              mountPath: /data/para
+            - name: para-relay-pvc
+              mountPath: /data/relay
+            - name: chain-spec
+              mountPath: /tmp
+      volumes:
+        - name: chain-spec
+          emptyDir: {}
+        - name: para-pvc
+          persistentVolumeClaim:
+            claimName: para-pvc
+        - name: para-relay-pvc
+          persistentVolumeClaim:
+            claimName: para-relay-pvc
