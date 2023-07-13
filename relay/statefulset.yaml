@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: relaynode
+  namespace: demo
+spec:
+  # pod selector
+  selector:
+    matchLabels:
+      app: relaynode
+      mode: relay
+  # select headless service
+  serviceName: "relay-headless-service"
+  # update strategy
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  # spec
+  replicas: 1 # by default is 1
+  template:
+    metadata:
+      labels:
+        app: relaynode
+        mode: relay
+    spec:
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        fsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 1000
+      initContainers:
+        - name: download-spec
+          image: curlimages/curl:8.1.2
+          command:
+            [
+              "curl",
+              "-L",
+              "https://docs.substrate.io/assets/tutorials/relay-chain-specs/raw-local-chainspec.json",
+              "-o",
+              "/tmp/raw-local-chainspec.json",
+            ]
+          volumeMounts:
+            - name: chain-spec
+              mountPath: /tmp
+      containers:
+        - name: relay
+          image: parity/polkadot:v0.9.39
+          imagePullPolicy: Always
+          args: [
+              "--bob",
+              "--validator",
+              "--force-authoring",
+              "--bootnodes",
+              "/dns4/boot-headless-service/tcp/30333/p2p/<boot node id>",
+              "--base-path",
+              "/data/relay",
+              "--chain",
+              "/tmp/raw-local-chainspec.json",
+              "--rpc-port=9933", # json rpc
+              "--port=30333", #p2p
+              "--unsafe-ws-external",
+              "--unsafe-rpc-external",
+              "--rpc-cors",
+              "all",
+              "--no-telemetry",
+            ]
+          volumeMounts:
+            - name: relay-pvc
+              mountPath: /data/bootnode
+            - name: chain-spec
+              mountPath: /tmp
+      # volume claim
+      volumes:
+        - name: chain-spec
+          emptyDir: {}
+        - name: relay-pvc
+          persistentVolumeClaim:
+            claimName: relay-pvc
