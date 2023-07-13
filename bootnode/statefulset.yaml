@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: bootnode
+  namespace: demo
+spec:
+  selector:
+    matchLabels:
+      app: bootnode
+      mode: relay
+  serviceName: "boot-headless-service"
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  replicas: 1 # by default is 1
+  template:
+    metadata:
+      labels:
+        app: bootnode
+        mode: relay
+    spec:
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        fsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 1000
+      initContainers:
+        - name: download-spec
+          image: curlimages/curl:8.1.2
+          command:
+            [
+              "curl",
+              "-L",
+              "https://docs.substrate.io/assets/tutorials/relay-chain-specs/raw-local-chainspec.json",
+              "-o",
+              "/tmp/raw-local-chainspec.json",
+            ]
+          volumeMounts:
+            - name: chain-spec
+              mountPath: /tmp
+      containers:
+        - name: polkadot
+          image: parity/polkadot:v0.9.39
+          imagePullPolicy: Always
+          args: [
+              "--alice",
+              "--validator",
+              "--force-authoring",
+              "--base-path",
+              "/data/relay",
+              "--chain",
+              "/tmp/raw-local-chainspec.json",
+              "--rpc-port=9933", # json rpc
+              "--ws-port=9944", # websocket
+              "--port=30333", #p2p
+              "--unsafe-ws-external",
+              "--unsafe-rpc-external",
+              "--rpc-cors",
+              "all",
+              "--no-telemetry",
+            ]
+          volumeMounts:
+            - name: relay-pvc
+              mountPath: /data/relay
+            - name: chain-spec
+              mountPath: /tmp
+      volumes:
+        - name: chain-spec
+          emptyDir: {}
+        - name: relay-pvc
+          persistentVolumeClaim:
+            claimName: boot-pvc
